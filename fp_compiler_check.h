@@ -182,7 +182,7 @@ static_assert(0, "error: /fp:fast is disallowed");
   #define fp_cc_retain(A,B)
 #elif defined(__GNUC__)
 
-#if 0 // !defined(FP_CC_INTERNAL_DEBUG)
+#if !defined(FP_CC_INTERNAL_DEBUG)
 // currently disabled to prevent "unused function" warnings. temp hack.
 #define FP_CC_FUNC __attribute__((noinline))
 #else
