@@ -34,7 +34,7 @@
 // all cases because it become undefined if any of it's suboptions are
 // overriden on the command line. example: -ffast-math -fno-reciprocal-math
 // will not have __FAST_MATH__ defined. On the positive side I'd expect
-// this situation to almost never happen in naturally in the wild.
+// this situation to almost never happen naturally in the wild.
 
 #if !defined(FP_CC_COMPILE_TIME_DISABLED)
 #if defined(__FAST_MATH__)
