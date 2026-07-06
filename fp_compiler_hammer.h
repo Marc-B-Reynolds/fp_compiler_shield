@@ -44,9 +44,12 @@ static_assert(0, "error: -ffast-math is disallowed");
 
 #pragma float_control(precise,on)            // see 1
 #pragma clang fp reassociate(off)            //   covered by (1)
-#pragma clang fp reciprocal(off)             //   covered by (1)
 #pragma clang fp contract(off)               // see 2 
 #pragma clang fp exceptions(ignore)
+
+#if (__clang_major__ >= 18)
+#pragma clang fp reciprocal(off)             //   covered by (1)
+#endif
 
 // other than control word can't count on fusing disabled,
 // respecting inf & nans.
@@ -70,4 +73,6 @@ static_assert(0, "error: -ffast-math is disallowed");
 #pragma float_control(precise, on)
 #pragma float_control(except, off)
 #pragma fp_contract(off)
+#else
+static_assert(0, "unknown compiler: fill in the blanks");
 #endif
