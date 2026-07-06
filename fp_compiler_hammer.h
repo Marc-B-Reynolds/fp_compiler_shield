@@ -8,14 +8,14 @@
 // NOTES:
 // ∙ -ffast-math thing of linking with crtfastmath.o which stomps on the control word
 //   cannot be handled in this manner (GCC & clang)
-// ∙ clang doesn't provide akk the tools we need (sadface). see below.
+// ∙ clang doesn't provide all the tools we need (sadface). see below.
 // ∙ This can't be done in a "nice" way when placed in a header including by a "user" which
 //   contains inline functions which are effected by FP options. There's no rules for
 //   what happens this situation.
 
 #pragma once
 
-// some modifications should be redundant: play it safe and easier to eyeball it's covered.
+// some modifications are redundant: play it safe and easier to eyeball it's covered.
 
 #if defined(__GNUC__)
 #if defined(__clang__)
@@ -29,7 +29,18 @@
 //   2. pragma is ignored if -fp-contract=fast or equivalent on command line.
 //      (checks-note) needs -ffp-contract=fast-honor-pragmas (LOL!) to be
 //      respected. useless for our purposes here.
-//
+
+// triggering a static_assert when __FAST_MATH__ is defined doesn't catch
+// all cases because it become undefined if any of it's suboptions are
+// overriden on the command line. example: -ffast-math -fno-reciprocal-math
+// will not have __FAST_MATH__ defined.
+
+#if !defined(FP_CC_COMPILE_TIME_DISABLED)
+#if defined(__FAST_MATH__)
+static_assert(0, "error: -ffast-math is disallowed");
+#endif
+#endif
+
 #pragma float_control(precise,on)            // see 1
 #pragma clang fp reassociate(off)            //   covered by (1)
 #pragma clang fp reciprocal(off)             //   covered by (1)
