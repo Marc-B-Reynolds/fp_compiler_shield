@@ -9,9 +9,11 @@
 // ∙ -ffast-math thing of linking with crtfastmath.o which stomps on the control word
 //   cannot be handled in this manner (GCC & clang)
 // ∙ clang doesn't provide all the tools we need (sadface). see below.
-// ∙ This can't be done in a "nice" way when placed in a header including by a "user" which
-//   contains inline functions which are effected by FP options. There's no rules for
-//   what happens this situation.
+// ∙ This can't be done in a "nice" way when placed in a header included by a "user".
+//   more reasonable usage is only including in source files of the library/
+//   subsystem in question (see next).
+// ∙ reminder: there are "no set rules" for how inline functions are expanded given
+//   the set of options at define time and those at expansion time. 
 
 #pragma once
 
@@ -28,7 +30,8 @@
 //      ∙ doesn't:  respect infinites &  NaNs
 //   2. pragma is ignored if -fp-contract=fast or equivalent on command line.
 //      (checks-note) needs -ffp-contract=fast-honor-pragmas (LOL!) to be
-//      respected. useless for our purposes here.
+//      respected. useless for our purposes here. Sadly there's no way
+//      to compile time detect.
 
 // triggering a static_assert when __FAST_MATH__ is defined doesn't catch
 // all cases because it become undefined if any of it's suboptions are
