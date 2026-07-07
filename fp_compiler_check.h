@@ -111,6 +111,7 @@
 #include <math.h>
 #include <errno.h>
 
+
 //────────────────────────────────────────────────────────────────────────
 // per translation unit: compile time checks
 // ∙ allow disabling compile time checks: mostly for internal development
@@ -208,7 +209,6 @@ static_assert(0, "error: /fp:fast is disallowed");
 
 // "user" aid function: more verbose output from runtime checks
 #if defined(FP_CC_VERBOSE)
-#include <stdio.h>
 #define FP_CC_DUMP(...) fprintf(stderr, __VA_ARGS__)
 #else
 #define FP_CC_DUMP(...)
@@ -266,112 +266,90 @@ static float FP_CC_FUNC fp_cc_add(float a, float b)
   return a+b;
 }
 
-static float FP_CC_FUNC fp_cc_div_pi(float a)
-{
-  fp_cc_retain(a,a);
-  return a/0x1.921fb6p1f;
-}
-
-static float FP_CC_FUNC fp_cc_mms(float a, float b, float c, float d)
-{
-  fp_cc_retain(a,b);
-  return a*b-c*d;
-}
-
-static float FP_CC_FUNC fp_cc_fast_add_error(float a, float b)
-{
-  fp_cc_retain(a,b);
-  return b-((a+b)-a);
-}
-
-static int FP_CC_FUNC fp_cc_lt_inf(float a)
-{
-  static const float inf = (float)(0x1.0p+1000);
-  
-  fp_cc_retain(a,a);
-  
-  return a < inf;
-}
-
-static int FP_CC_FUNC fp_cc_is_ordered(float a)
-{
-  fp_cc_retain(a,a);
-
-  return a == a;
-}
-
-static float FP_CC_FUNC fp_cc_add_zero(float a)
-{
-  fp_cc_retain(a,a);
-
-  return a+0.0f;
-}
-
-#if defined(FP_CC_EXCEPTIONS) && defined(FP_CC_EXCEPTIONS_RUNTIME)
-static float FP_CC_FUNC fp_cc_get_inf(void)
-{
-  return 1.f/0.f;
-}
-#endif
-
 
 //────────────────────────────────────────────────────────────────────────
 // per translation unit: runtime checks
 
-// meh: user has to tell the including file
+// can automagically determine base source file in GCC & clang.
+// others need to define FP_CC_FILE to report something other than
+// (unknown)
 #ifndef FP_CC_FILE
+#if defined(__GNUC__)
+#define FP_CC_FILE __BASE_FILE__ 
+#else
 #define FP_CC_FILE "(unknown)"
 #endif
+#endif
 
+typedef enum {
+  fp_cc_ok             = 0,
+  fp_cc_errno          = 1u << 0,
+  fp_cc_exceptions     = 1u << 1,
+  fp_cc_fused          = 1u << 2,
+  fp_cc_associative    = 1u << 3,
+  fp_cc_reciprocal     = 1u << 4,
+  fp_cc_daz            = 1u << 5,
+  fp_cc_no_signed_zero = 1u << 6,
+  fp_cc_no_honor_nan   = 1u << 7,
+  fp_cc_no_honor_inf   = 1u << 8,
+} fp_cc_error_t;
+
+
+// correct result is integer 0 helper
+static uint32_t FP_CC_FUNC fp_cc_check_int_zero(uint32_t r, char* msg, fp_cc_error_t flag)
+{
+  if (r == 0) return fp_cc_ok;
+
+  fprintf(stderr, "\n  error: %s", msg);
+
+  return flag;
+}
+
+
+// correct result is non-zero helper
+static uint32_t FP_CC_FUNC fp_cc_check_not_zero(float r, char* msg, fp_cc_error_t flag)
+{
+  if (!(r == 0.f)) return fp_cc_ok;
+
+  fprintf(stderr, "\n  error: %s", msg);
+
+  return flag;
+}
+
+//────────────────────────────────────────────────────────────────────────
 // runtime check if math is setting errno by checking sqrtf
 // (or provided replacement: looking at visual-c here)
 // ∙ GCC, clang: "should" never trigger since it's covered by a compile time check
 // ∙ MSC: going to get a compile time and run time warnings unless a
 //   replacement has been provided or check is disabled.
-static uint32_t FP_CC_FUNC fp_cc_check_errno(uint32_t e)
+static uint32_t FP_CC_FUNC fp_cc_check_errno(void)
 {
 #if !defined(FP_CC_ERRNO_SKIP)
   errno = 0;
 
   (void)fp_cc_sqrt(-1.f);
   
-  if (errno == 0) return e;
+  if (errno == 0) return 0;
   
   fprintf(stderr, "\n  warning: sqrt setting errno");
   
-  return e+1;
+  return fp_cc_errno;
 #else
-  return e;
+  return 0;
 #endif  
 }
 
-// correct result is zero helper
-static uint32_t FP_CC_FUNC fp_cc_check_zero(float r, char* msg)
-{
-  if (r == 0.f) return 0;
 
-  fprintf(stderr, "\n  error: %s", msg);
+//────────────────────────────────────────────────────────────────────────
+// check if the control word has been modified to flush denormals
+// on load and/or result
 
-  return 1;
-}
-
-// correct result is non-zero helper
-static uint32_t FP_CC_FUNC fp_cc_check_not_zero(float r, char* msg)
-{
-  if (!(r == 0.f)) return 0;
-
-  fprintf(stderr, "\n  error: %s", msg);
-
-  return 1;
-}
-
-
-// add min_denorm to itself returns a denormal. if "flush on load" or "flush on result" is enabled
-// then result will be zero. Notice can only catch if the control word has already be modified
-// at the time of execution.
+// add min_denorm to itself returns a denormal. if "flush on load" or "flush on result"
+// is enabled then result will be zero. Notice can only catch if the control word has
+// already be modified at the time of execution.
 //
 // NOTE: a false postive can occur if the compiler converts fp_cc_min_denormal to zero
-static uint32_t FP_CC_FUNC fp_cc_check_daz(uint32_t e)
+static uint32_t FP_CC_FUNC fp_cc_check_daz(void)
 {
   // (a,b) are bit patterns of min_denormal and 2*min_denormal
   uint32_t a = 1;
@@ -381,27 +359,46 @@ static uint32_t FP_CC_FUNC fp_cc_check_daz(uint32_t e)
   fp_cc_retain(b,a);
 
   // attempt to move a denormal into a register w/o a floating point operation
-  // (frown..not useful as is)
+  // (frown..not useful as is).
   f  = fp_cc_from_bits(b);
 
-  e += fp_cc_check_not_zero(fp_cc_add(f,f),  "denormals flushing to zero");
-  
-  return e;
+  return fp_cc_check_not_zero(fp_cc_add(f,f),
+                              "denormals flushing to zero",
+                              fp_cc_daz);  
 }
 
-static uint32_t FP_CC_FUNC fp_cc_check_associative(uint32_t e)
+
+//────────────────────────────────────────────────────────────────────────
+// check if applying (non-error free) associative transforms
+
+// computes the error term of (a+b)
+static float FP_CC_FUNC fp_cc_add_error(float a, float b)
+{
+  fp_cc_retain(a,b);
+  return b-((a+b)-a);
+}
+
+static uint32_t FP_CC_FUNC fp_cc_check_associative(void)
 {
   static const float a = 1.f;
   static const float b = 0x1.6a09e6p-40f;
 
-  float r = fp_cc_fast_add_error(a,b);
+  float r = fp_cc_add_error(a,b);
 
-  e += fp_cc_check_not_zero(r, "associative transform");
-  
-  return e;
+  return fp_cc_check_not_zero(r, "associative transform", fp_cc_associative);
 }
 
-static uint32_t FP_CC_FUNC fp_cc_check_fused(uint32_t e)
+
+//────────────────────────────────────────────────────────────────────────
+// check if transforming a*b+c info fma(a,b,c)
+
+static float FP_CC_FUNC fp_cc_mms(float a, float b, float c, float d)
+{
+  fp_cc_retain(a,b);
+  return a*b-c*d;
+}
+
+static uint32_t FP_CC_FUNC fp_cc_check_fused(void)
 {
   // compute: ab-cd with ab==cd and both a and b are odd so ab != RN(ab)
   // without fusing result is zero. both possible fused version RN(ab,-RN(ab)) & RN(RN(ab)-ab)
@@ -413,19 +410,30 @@ static uint32_t FP_CC_FUNC fp_cc_check_fused(uint32_t e)
 
   float r = fp_cc_mms(a,b,a,b);
 
-  if (r == 0.f) return e;
+  if (r == 0.f) return 0;
 
   fprintf(stderr, "\n  error: %s", "compiler fused to FMA");
 
+  // if fused either way as noted above then |r| == w 
   r = fabsf(r);
-  
+
+  // if we don't have 'w' then something else is rotten in Denmark.
   if (r != w)
     fprintf(stderr, "\n         unexpected answer: %a expected %a with fusing", r, w);
   
-  return e+1;
+  return fp_cc_fused;
 }
 
-static uint32_t FP_CC_FUNC fp_cc_check_reciprocal(uint32_t e)
+
+//────────────────────────────────────────────────────────────────────────
+// check if transforming constant and/or repeated division(s) into product
+
+static float FP_CC_FUNC fp_cc_div_pi(float a)
+{
+  fp_cc_retain(a,a);
+  return a/0x1.921fb6p1f;
+}
+static uint32_t FP_CC_FUNC fp_cc_check_reciprocal(void)
 {
   // divide 'x' by pi. should get 'c' if transformed we get 'w'
   // RN(x/RN(pi)) = c  & RN(x * RN(1/RN(pi))) = w
@@ -435,62 +443,99 @@ static uint32_t FP_CC_FUNC fp_cc_check_reciprocal(uint32_t e)
 
   float r = fp_cc_div_pi(x);
 
-  if (r == c) return e;
+  if (r == c) return 0;
 
   if (r == w)
     fprintf(stderr, "\n  error: %s", "reciprocal math enabled");
   else
     fprintf(stderr, "\n  error: %s", "reciprocal math unexpected result!!");
   
-  return e+1;
+  return fp_cc_reciprocal;
 }
 
-static uint32_t FP_CC_FUNC fp_cc_check_infinites(uint32_t e)
+
+//────────────────────────────────────────────────────────────────────────
+// check for honoring infinities
+
+static uint32_t FP_CC_FUNC fp_cc_lt_inf(float a)
+{
+  static const float inf = (float)(0x1.0p+1000);
+  
+  fp_cc_retain(a,a);
+  
+  return (uint32_t)(a < inf);
+}
+
+static uint32_t FP_CC_FUNC fp_cc_check_infinites(void)
 {
   static const float a = 0x1.fffffep+127f;
 
-  if (fp_cc_lt_inf(a+a) == 0)
-    return e;
-  
-  fprintf(stderr, "\n  error: %s", "ignoring infinities");
-
-  return e + 1;
+  return fp_cc_check_int_zero(fp_cc_lt_inf(a+a),
+                              "ignoring infinities",
+                              fp_cc_no_honor_inf);                     
 }
 
-static uint32_t FP_CC_FUNC fp_cc_check_nan(uint32_t e)
+
+//────────────────────────────────────────────────────────────────────────
+// check for honoring NaNs
+
+static uint32_t FP_CC_FUNC fp_cc_is_ordered(float a)
 {
-  float nan = fp_cc_from_bits(0x7fc00000);
+  fp_cc_retain(a,a);
 
-  if (fp_cc_is_ordered(nan) == 0)
-    return e;
-  
-  fprintf(stderr, "\n  error: %s", "ignoring NaNs");
-
-  return e + 1;
+  return (uint32_t)(a == a);
 }
 
-static uint32_t FP_CC_FUNC fp_cc_check_signed_zeroes(uint32_t e)
+static uint32_t FP_CC_FUNC fp_cc_check_nan(void)
+{
+  float    nan = fp_cc_from_bits(0x7fc00000);
+  uint32_t t   = fp_cc_is_ordered(nan);
+  
+  return fp_cc_check_int_zero(t, "ignoring NaNs", fp_cc_no_honor_nan);
+}
+
+
+//────────────────────────────────────────────────────────────────────────
+// check for signed zeroes. if respected then (x+0.f) can't be reduced
+// to 'x' since it flushes -0 to +0.
+
+static float FP_CC_FUNC fp_cc_add_zero(float a)
+{
+  fp_cc_retain(a,a);
+
+  return a+0.0f;
+}
+
+static uint32_t FP_CC_FUNC fp_cc_check_signed_zeroes(void)
 {
   float    a = fp_cc_from_bits(0x80000000);
   float    r = fp_cc_add_zero(a);
   uint32_t t = fp_cc_to_bits(r);
   
-  if (t == 0) return e;
-  
-  fprintf(stderr, "\n  error: %s", "ignoring signed zeroes");
-
-  return e + 1;
+  return fp_cc_check_int_zero(t, "ignoring signed zeroes", fp_cc_no_signed_zero);
 }
 
 
+//────────────────────────────────────────────────────────────────────────
+//
+
 // standards are great
 #if defined(_MSC_VER)
+#pragma float_control(push)
+#pragma float_control(precise,on)
 #pragma fenv_access(on)
 #elif !defined(__GNUC__)
 #pragma STDC FENV_ACCESS ON
 #endif
 
 #include <fenv.h>
+
+#if defined(FP_CC_EXCEPTIONS) && defined(FP_CC_EXCEPTIONS_RUNTIME)
+static float FP_CC_FUNC fp_cc_get_inf(void)
+{
+  return 1.f/0.f;
+}
+#endif
 
 // runtime checking seems pointless but have it available if the compile-time
 // check isn't working for some compiler.
@@ -528,11 +573,10 @@ static uint32_t FP_CC_FUNC fp_cc_check_exceptions(uint32_t e)
 
 #if defined(_MSC_VER)
 #pragma fenv_access(off)
+#pragma float_control(pop)
 #elif !defined(__GNUC__)
 #pragma STDC FENV_ACCESS OFF
 #endif
-
-
 
 
 //────────────────────────────────────────────────────────────────────────
@@ -544,18 +588,24 @@ static void fp_compiler_check(void)
 
   FP_CC_DUMP("fp_compiler_check: %-50s ", FP_CC_FILE);
 
-  errors = fp_cc_check_errno(errors);
-  errors = fp_cc_check_daz(errors); 
-  errors = fp_cc_check_fused(errors);  
-  errors = fp_cc_check_associative(errors);  
-  errors = fp_cc_check_reciprocal(errors);  
-  errors = fp_cc_check_infinites(errors);  
-  errors = fp_cc_check_nan(errors);  
-  errors = fp_cc_check_signed_zeroes(errors);  
-  errors = fp_cc_check_exceptions(errors);  
+  errors |= fp_cc_check_errno();
+  errors |= fp_cc_check_daz(); 
+  errors |= fp_cc_check_fused();  
+  errors |= fp_cc_check_associative();  
+  errors |= fp_cc_check_reciprocal();  
+  errors |= fp_cc_check_infinites();  
+  errors |= fp_cc_check_nan();  
+  errors |= fp_cc_check_signed_zeroes();
+  errors |= fp_cc_check_exceptions(errors);  
   
-  if (errors != 0)
-    fprintf(stderr, "\n  float point options violations: %u\n", errors);
+  if (errors != 0) {
+#if defined(__GNUC__)    
+    uint32_t n = (uint32_t)__builtin_popcount(errors);
+#elif defined(_MSC_VER)
+    uint32_t n = (uint32_t)__popcnt(errors);
+#endif
+    fprintf(stderr, "\n  float point options violations: %u\n", n);
+  }
   else {
     FP_CC_DUMP("  done\n");
   }
