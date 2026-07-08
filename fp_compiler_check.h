@@ -18,9 +18,9 @@
 //   of runtime checks.
 // 
 // LIMITATIONS:
-// ∙ There's no automagic way (I can think of) to expand the name
-//   of the source file so need to define FP_CC_FILE for output
-//   to not report "(unknown)"  (__FILE__ expands to this header)
+// ∙ The filename needs to be manually provided (FP_CC_FILE)
+//   for compilers that don't support __BASE_FILE__ predefined
+//   macro. Otherwise reported as "(unknown)".
 // ∙ runtime checks (obviously) expand by the compiler settings
 //   at the point this header is included. So can't catch if they
 //   are modified in the source file (pragmas, etc) at some later
@@ -41,6 +41,8 @@
 //   have been enabled (/GL). The compiler thinks they are
 //   unreachable and are removed. (can't think of a zero user friction
 //   way to correct this).
+// ∙ Assumes no computations are performed using excess precision:
+//   float/double is always binary32/binary64. 
 // ∙ many more!
 //
 // NOTES:
@@ -74,7 +76,7 @@
 //     ∙ compile time & optional runtime
 //   NOTE: purely performance related. IMHO should be disabled since
 //   it's almost unused and useless on hardware from the past few
-//   decades. 
+//   decades.
 //
 // ∙ checks that automatic fusing is disabled. FMAs are the best addition
 //   IMHO to floating point since the OG IEEE-754 spec. And they are an
@@ -89,8 +91,11 @@
 // ∙ reciprocals
 //     ∙ runtime
 // ∙ respect infinities
+//     ∙ runtime
 // ∙ respect NaNs
+//     ∙ runtime
 // ∙ respect signed zeroes
+//     ∙ runtime
 //
 //────────────────────────────────────────────────────────────────────────
 // Some compiler references:
@@ -195,7 +200,7 @@ static_assert(0, "error: /fp:fast is disallowed");
 #endif
 
 
-#if defined(FP_CC_INTERNAL_DEBUG)
+#if 1 // defined(FP_CC_INTERNAL_DEBUG)
 // this attempts to prevent an inline and elimiation of a function that
 // reduces to trival (another dev aid as per unused & retain above)
 #define fp_cc_retain(A,B) do { __asm__ ("" : "+x" (A), "+x"(B)); } while (0)
@@ -225,6 +230,7 @@ static_assert(0, "error: /fp:fast is disallowed");
 #if defined(__GNUC__) && !defined(__FAST_MATH__)
   #if !defined(__clang__) && !defined(__OPTIMIZE__)
     // GCC (as of 14.2.0) ignores -fno-math-errno at -O0
+    // choosing to supress the warning spam in that case
     #define FP_CC_ERRNO_SKIP
   #endif
 
@@ -254,11 +260,6 @@ static inline float fp_cc_from_bits(uint32_t x)
 // note: the body of each must be sufficent to perform the undesired
 // optimization.
 
-static float FP_CC_FUNC fp_cc_sqrt(float x)
-{
-  fp_cc_retain(x,x);
-  return FP_CC_SQRTF(x);
-}
 
 static float FP_CC_FUNC fp_cc_add(float a, float b)
 {
@@ -322,16 +323,25 @@ static uint32_t FP_CC_FUNC fp_cc_check_not_zero(float r, char* msg, fp_cc_error_
 // ∙ GCC, clang: "should" never trigger since it's covered by a compile time check
 // ∙ MSC: going to get a compile time and run time warnings unless a
 //   replacement has been provided or check is disabled.
+
+static float FP_CC_FUNC fp_cc_sqrt(float x)
+{
+  fp_cc_retain(x,x);
+  return FP_CC_SQRTF(x);
+}
+
 static uint32_t FP_CC_FUNC fp_cc_check_errno(void)
 {
 #if !defined(FP_CC_ERRNO_SKIP)
   errno = 0;
 
-  (void)fp_cc_sqrt(-1.f);
+  float r = fp_cc_sqrt(-1.f);
   
   if (errno == 0) return 0;
-  
-  fprintf(stderr, "\n  warning: sqrt setting errno");
+
+  // dumping 'f' to prevent elimination w/o the 'retain' asm.
+  // could make into white-space...but meh.
+  fprintf(stderr, "\n  warning: sqrt setting errno (%f)", r);
   
   return fp_cc_errno;
 #else
@@ -371,7 +381,12 @@ static uint32_t FP_CC_FUNC fp_cc_check_daz(void)
 //────────────────────────────────────────────────────────────────────────
 // check if applying (non-error free) associative transforms
 
-// computes the error term of (a+b)
+// GCC: disables associative with no-trapping-math and no-signed-zeros.  SEE: toplev.cc
+// this test is "wrong" w/o the GCC requirement above. I can't think of any transform
+// that would be reasonable to apply without these two requirements (well without
+// providing some range information on the inputs then no-signed-zeros can be okay)
+
+// computes the FastTwoSum error term of (a+b)
 static float FP_CC_FUNC fp_cc_add_error(float a, float b)
 {
   fp_cc_retain(a,b);
@@ -380,6 +395,8 @@ static float FP_CC_FUNC fp_cc_add_error(float a, float b)
 
 static uint32_t FP_CC_FUNC fp_cc_check_associative(void)
 {
+  // a+b isn't exact & the computation of the error term
+  // will collapse to zero if associative transforms are allowed.
   static const float a = 1.f;
   static const float b = 0x1.6a09e6p-40f;
 
