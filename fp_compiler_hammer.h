@@ -54,8 +54,8 @@ static_assert(0, "error: -ffast-math is disallowed");
 #pragma clang fp reciprocal(off)             //   covered by (1)
 #endif
 
-// other than control word can't count on fusing disabled,
-// respecting inf & nans.
+// other than control word can't count on fusing disabled:
+// not respecting inf & nans.
 
 #else
 #pragma GCC optimize ("no-fast-math")
