@@ -138,7 +138,7 @@ static_assert((math_errhandling & MATH_ERREXCEPT)==0, "error: floating exception
 #endif
 
 
-#if   defined(__GNUC__)
+#if   defined(__GNUC__) || defined(__clang__)
 
 #if !defined(FP_CC_ERRNO_SKIP)
 // Visual C doesn't provided an isolated disable (just with fast math)
@@ -186,7 +186,7 @@ static_assert(0, "error: /fp:fast is disallowed");
 #if defined(_MSC_VER)
   #define FP_CC_FUNC __declspec(noinline)
   #define fp_cc_retain(A,B)
-#elif defined(__GNUC__)
+#elif defined(__GNUC__) || defined(__clang__)
 
 #if !defined(FP_CC_INTERNAL_DEBUG)
 // currently disabled to prevent "unused function" warnings. temp hack.
@@ -227,7 +227,7 @@ static_assert(0, "error: /fp:fast is disallowed");
 
 #if !defined(FP_CC_ERRNO_SKIP)
 
-#if defined(__GNUC__) && !defined(__FAST_MATH__)
+#if (defined(__GNUC__)||defined(__clang__)) && !defined(__FAST_MATH__)
   #if !defined(__clang__) && !defined(__OPTIMIZE__)
     // GCC (as of 14.2.0) ignores -fno-math-errno at -O0
     // choosing to supress the warning spam in that case
@@ -275,7 +275,7 @@ static float FP_CC_FUNC fp_cc_add(float a, float b)
 // others need to define FP_CC_FILE to report something other than
 // (unknown)
 #ifndef FP_CC_FILE
-#if defined(__GNUC__)
+#if defined(__GNUC__) || defined(__clang__)
 #define FP_CC_FILE __BASE_FILE__ 
 #else
 #define FP_CC_FILE "(unknown)"
@@ -541,7 +541,7 @@ static uint32_t FP_CC_FUNC fp_cc_check_signed_zeroes(void)
 #pragma float_control(push)
 #pragma float_control(precise,on)
 #pragma fenv_access(on)
-#elif !defined(__GNUC__)
+#elif !(defined(__GNUC__) || defined(__clang__))
 #pragma STDC FENV_ACCESS ON
 #endif
 
@@ -591,7 +591,7 @@ static uint32_t FP_CC_FUNC fp_cc_check_exceptions(uint32_t e)
 #if defined(_MSC_VER)
 #pragma fenv_access(off)
 #pragma float_control(pop)
-#elif !defined(__GNUC__)
+#elif !(defined(__GNUC__) || defined(__clang__))
 #pragma STDC FENV_ACCESS OFF
 #endif
 
@@ -616,7 +616,7 @@ static void fp_compiler_check(void)
   errors |= fp_cc_check_exceptions(errors);  
   
   if (errors != 0) {
-#if defined(__GNUC__)    
+#if defined(__GNUC__) || defined(__clang__)
     uint32_t n = (uint32_t)__builtin_popcount(errors);
 #elif defined(_MSC_VER)
     uint32_t n = (uint32_t)__popcnt(errors);
@@ -632,7 +632,7 @@ static void fp_compiler_check(void)
 //────────────────────────────────────────────────────────────────────────
 // crowbar calling 'fp_compiler_check' at init time per TU
 
-#if defined(__GNUC__)
+#if defined(__GNUC__) || defined(__clang__)
 // execute the test as late as possible
 static void __attribute__((constructor(65535))) fp_compiler_check_root(void) { fp_compiler_check(); }
 

@@ -19,7 +19,7 @@
 
 // some modifications are redundant: play it safe and easier to eyeball it's covered.
 
-#if defined(__GNUC__)
+#if defined(__GNUC__) || defined(__clang__)
 #if defined(__clang__)
 // https://clang.llvm.org/docs/LanguageExtensions.html#extensions-to-specify-floating-point-flags
 // 
@@ -27,14 +27,14 @@
 // vs. -ffast-math on command line:
 //   1. supposedly sets: -fno-fast-math -ffp-contract=on -fmath-errno
 //      ∙ corrects: associative, reciprocal & signed zeroes ATM
-//      ∙ doesn't:  respect infinites &  NaNs
+//      ∙ doesn't:  respect infinites &  NaNs (bug filed)
 //   2. pragma is ignored if -fp-contract=fast or equivalent on command line.
 //      (checks-note) needs -ffp-contract=fast-honor-pragmas (LOL!) to be
 //      respected. useless for our purposes here. Sadly there's no way
 //      to compile time detect.
 
 // triggering a static_assert when __FAST_MATH__ is defined doesn't catch
-// all cases because it become undefined if any of it's suboptions are
+// all cases because it becomes undefined if any of it's suboptions are
 // overriden on the command line. example: -ffast-math -fno-reciprocal-math
 // will not have __FAST_MATH__ defined. On the positive side I'd expect
 // this situation to almost never happen naturally in the wild.
